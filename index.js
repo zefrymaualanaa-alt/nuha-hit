@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Telegraf } = require('telegraf'); // Hapus Markup karena kita pakai raw object
+const { Telegraf } = require('telegraf'); 
 const axios = require('axios');
 const fs = require('fs');
 const { chromium } = require('playwright');
@@ -14,7 +14,33 @@ const userStates = {};
 
 // --- DATABASE & SETTING OWNER ---
 const USER_DB_FILE = 'users.json'; 
-const OWNER_ID = 8584163273; 
+const OWNERS_DB_FILE = 'owners.json';
+const PRIMARY_OWNER_ID = 8584163273; // Owner Utama Permanen
+
+// Inisialisasi Database Owner
+function loadOwners() {
+    try {
+        if (!fs.existsSync(OWNERS_DB_FILE)) {
+            const initialOwners = [PRIMARY_OWNER_ID.toString()];
+            fs.writeFileSync(OWNERS_DB_FILE, JSON.stringify(initialOwners, null, 2));
+            return initialOwners;
+        }
+        let owners = JSON.parse(fs.readFileSync(OWNERS_DB_FILE, 'utf8')).map(id => id.toString());
+        if (!owners.includes(PRIMARY_OWNER_ID.toString())) {
+            owners.push(PRIMARY_OWNER_ID.toString());
+            fs.writeFileSync(OWNERS_DB_FILE, JSON.stringify(owners, null, 2));
+        }
+        return owners;
+    } catch (e) {
+        return [PRIMARY_OWNER_ID.toString()];
+    }
+}
+
+function isOwner(userId) {
+    if (!userId) return false;
+    const owners = loadOwners();
+    return owners.includes(userId.toString());
+}
 
 // --- SISTEM STATISTIK RINGAN (REAL-TIME) ---
 const STATS_FILE = 'stats.json';
@@ -63,7 +89,7 @@ function getCountryDetail(countryCode) {
         'BR': { name: 'Brazil', flag: '🇧🇷' }, 'MX': { name: 'Mexico', flag: '🇲🇽' },
         'AR': { name: 'Argentina', flag: '🇦🇷' }, 'CO': { name: 'Colombia', flag: '🇨🇴' },
         'CL': { name: 'Chile', flag: '🇨🇱' }, 'PE': { name: 'Peru', flag: '🇵🇪' },
-        'VE': { name: 'Venezuela', flag: '🇻🇪' }, 'EC': { name: 'Ecuador', flag: '🇪🇨' },
+        'VE': { name: 'Venezuela', flag: '🇪🇸' }, 'EC': { name: 'Ecuador', flag: '🇪🇨' },
         'BO': { name: 'Bolivia', flag: '🇧🇴' }, 'PY': { name: 'Paraguay', flag: '🇵🇾' },
         'UY': { name: 'Uruguay', flag: '🇺🇾' }, 'CR': { name: 'Costa Rica', flag: '🇨🇷' },
         'PA': { name: 'Panama', flag: '🇵🇦' }, 'DO': { name: 'Dominican Republic', flag: '🇩🇴' },
@@ -100,15 +126,7 @@ function readAccountsGen() {
 async function getLinkFromCodeboxGen(page) {
     try {
         await page.waitForSelector('.codebox', { timeout: 30000, state: 'visible' });
-        const link = await page.$eval('.codebox code', el => el.textContent.trim());
-        if (link && link.includes('https://netflix.com/?nftoken=')) return link;
-        return null;
-    } catch (error) { return null; }
-}
-
-async function checkPartnerGen(page) {
-    try {
-        const planElements = await page.$$('.kx-kv');
+        const link = await page.$eval('.codebox code', el => el.textContent.trim());         if (link && link.includes('https://netflix.com/?nftoken=')) return link;         return null;     } catch (error) { return null; } }  async function checkPartnerGen(page) {     try {         const planElements = await page.$$('.kx-kv');
         for (const element of planElements) {
             const label = await element.$eval('.k', el => el.textContent.trim());
             if (label === 'Plan') {
@@ -151,7 +169,7 @@ async function resolveLinkToCookie(targetUrl) {
     } catch (error) { return null; }
 }
 
-// --- SISTEM DATABASE ---
+// --- SISTEM DATABASE USER ---
 function loadUsers() {
     try {
         if (!fs.existsSync(USER_DB_FILE)) {
@@ -279,10 +297,10 @@ bot.command('cekantrian', (ctx) => {
 
 bot.command('hit', async (ctx) => {
     const currentUserId = ctx.from.id.toString();
-    const isOwner = currentUserId === OWNER_ID.toString();
+    const hasOwnerAccess = isOwner(currentUserId);
     const userRecord = loadUsers().find(u => u.id.toString() === currentUserId);
     let isVip = userRecord?.isVip === true && (!userRecord.vipExpiredAt || new Date() < new Date(userRecord.vipExpiredAt));
-    if (!isOwner && !isVip) return ctx.reply('❌ <b>Akses Ditolak:</b>\nFitur eksklusif ini hanya dapat diakses oleh Owner dan anggota VIP.', { parse_mode: 'HTML' });
+    if (!hasOwnerAccess && !isVip) return ctx.reply('❌ <b>Akses Ditolak:</b>\nFitur eksklusif ini hanya dapat diakses oleh Owner dan anggota VIP.', { parse_mode: 'HTML' });
 
     const args = ctx.message.text.split(' ');
     if (args.length < 2 || isNaN(parseInt(args[1]))) return ctx.reply('⚠️ <b>Format Input Invalid</b>\nPanduan penggunaan: <code>/hit &lt;jumlah&gt;</code>\nContoh: <code>/hit 5</code>', { parse_mode: 'HTML' });
@@ -300,11 +318,11 @@ bot.action('action_cek_antrian', (ctx) => {
 bot.action('action_run_bot', async (ctx) => {
     ctx.answerCbQuery();
     const currentUserId = ctx.from.id.toString();
-    const isOwner = currentUserId === OWNER_ID.toString();
+    const hasOwnerAccess = isOwner(currentUserId);
     const userRecord = loadUsers().find(u => u.id.toString() === currentUserId);
     
     let isVip = userRecord?.isVip === true && (!userRecord.vipExpiredAt || new Date() < new Date(userRecord.vipExpiredAt));
-    if (!isOwner && !isVip) return ctx.reply('❌ <b>Akses Ditolak:</b>\nOtorisasi gagal. Sistem ini khusus untuk Administrator dan Pengguna VIP.', { parse_mode: 'HTML' });
+    if (!hasOwnerAccess && !isVip) return ctx.reply('❌ <b>Akses Ditolak:</b>\nOtorisasi gagal. Sistem ini khusus untuk Administrator dan Pengguna VIP.', { parse_mode: 'HTML' });
 
     userStates[currentUserId] = 'AWAITING_HIT_COUNT';
     ctx.reply('🔢 <b>SISTEM MENUNGGU INPUT</b>\n\nBerapa jumlah target data akun yang ingin Anda ekstraksi pada sesi ini?\n\n<i>(Kirimkan format angka bilangan bulat saja, contoh: 5)</i>', { parse_mode: 'HTML' });
@@ -318,6 +336,7 @@ bot.action('action_menu_bot', (ctx) => {
         `• <code>/hit [jumlah]</code> : Eksekusi manual mesin ekstraksi (Maks 100).\n` +
         `• <code>/cekantrian</code> : Pantau status lalu lintas server secara <i>real-time</i>.\n\n` +
         `<b>👑 Modul Administrator</b>\n` +
+        `• <code>/addown @username / id</code> : Mendaftarkan owner baru ke bot.\n` +
         `• <code>/addvip @username [durasi]</code> : Mendaftarkan kredensial VIP baru.\n` +
         `• <code>/delvip @username</code> : Mencabut otorisasi VIP pengguna.\n` +
         `• <code>/bc [pesan]</code> : Menyiarkan pemberitahuan global ke <i>database</i> pengguna.\n\n` +
@@ -540,9 +559,46 @@ async function processNextHit() {
     }
 }
 
-// --- COMMAND VIP & BROADCAST ---
+// --- COMMAND OWNER, VIP & BROADCAST ---
+bot.command('addown', async (ctx) => {
+    if (!isOwner(ctx.from.id)) return ctx.reply("❌ Otorisasi Ditolak!");
+    const args = ctx.message.text.split(' ');
+    if (args.length < 2) return ctx.reply("⚠️ Format Perintah: <code>/addown @username</code> atau <code>/addown &lt;id_telegram&gt;</code>", { parse_mode: 'HTML' });
+
+    let target = args[1].trim().replace('@', '');
+    let targetId = null;
+    let targetName = `@${target}`;
+
+    // Cek apakah input berupa angka ID Telegram langsung
+    if (/^\d+$/.test(target)) {
+        targetId = target;
+        const users = loadUsers();
+        const found = users.find(u => u.id.toString() === targetId);
+        if (found && found.username) targetName = `${found.username} (${targetId})`;
+    } else {
+        // Cari via username di database users.json
+        const users = loadUsers();
+        const userRecord = users.find(u => u.username && u.username.replace('@', '').toLowerCase() === target.toLowerCase());
+        if (!userRecord) {
+            return ctx.reply("❌ Pengguna tidak ditemukan di database. Pastikan target sudah pernah menekan <code>/start</code> di bot ini.", { parse_mode: 'HTML' });
+        }
+        targetId = userRecord.id.toString();
+        targetName = `${userRecord.username} (<code>${targetId}</code>)`;
+    }
+
+    let owners = loadOwners();
+    if (owners.includes(targetId)) {
+        return ctx.reply("⚠️ Pengguna tersebut sudah terdaftar sebagai Owner.", { parse_mode: 'HTML' });
+    }
+
+    owners.push(targetId);
+    fs.writeFileSync(OWNERS_DB_FILE, JSON.stringify(owners, null, 2));
+
+    ctx.reply(`✅ <b>AKSES OWNER DIBERIKAN</b>\n👤 Pengguna: ${targetName}\nSekarang pengguna memiliki otorisasi penuh sebagai Owner.`, { parse_mode: 'HTML' });
+});
+
 bot.command('addvip', async (ctx) => {
-    if (ctx.from.id.toString() !== OWNER_ID.toString()) return ctx.reply("❌ Otorisasi Ditolak!");
+    if (!isOwner(ctx.from.id)) return ctx.reply("❌ Otorisasi Ditolak!");
     const args = ctx.message.text.split(' ');
     if (args.length < 3) return ctx.reply("⚠️ Format Perintah: <code>/addvip @username 30d</code>", { parse_mode: 'HTML' });
     let target = args[1].replace('@', ''), durationInput = args[2].toLowerCase(), users = loadUsers();
@@ -551,7 +607,7 @@ bot.command('addvip', async (ctx) => {
     
     let expiredDate = null, durationText = "Selamanya (Lifetime)";
     if (durationInput !== 'lifetime') {
-        const matchDays = durationInput.match(/^(\d+)d$/), matchMonths = durationInput.match(/^(\d+)(m|b)$/);
+        const matchDays = durationInput.match(/^(\d+)d$/), matchMonths = durationInput.match(/^(\d+)(m\vert{}b)$/);
         let days = matchDays ? parseInt(matchDays[1]) : (matchMonths ? parseInt(matchMonths[1]) * 30 : 0);
         if (days === 0) return ctx.reply("⚠️ Format durasi waktu tidak valid.");
         expiredDate = new Date(); expiredDate.setDate(expiredDate.getDate() + days);
@@ -563,7 +619,7 @@ bot.command('addvip', async (ctx) => {
 });
 
 bot.command('delvip', async (ctx) => {
-    if (ctx.from.id.toString() !== OWNER_ID.toString()) return ctx.reply("❌ Otorisasi Ditolak!");
+    if (!isOwner(ctx.from.id)) return ctx.reply("❌ Otorisasi Ditolak!");
     const args = ctx.message.text.split(' ');
     if (args.length < 2) return ctx.reply("⚠️ Format Perintah: <code>/delvip @username</code>", { parse_mode: 'HTML' });
     let target = args[1].replace('@', ''), users = loadUsers();
@@ -575,7 +631,7 @@ bot.command('delvip', async (ctx) => {
 });
 
 bot.command('bc', async (ctx) => {
-    if (ctx.from.id.toString() !== OWNER_ID.toString()) return;
+    if (!isOwner(ctx.from.id)) return;
     const messageText = ctx.message.text.split(' ').slice(1).join(' ');
     if (!messageText) return ctx.reply('⚠️ Format Perintah: <code>/bc [Pesan Siaran]</code>', { parse_mode: 'HTML' });
 
